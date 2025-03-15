@@ -1,0 +1,115 @@
+## Test suite
+
+Ну не так плохо. Есть ворнинги.
+
+```bash
+[bc2942a4] 	Finished in 1 minute 7.93 seconds (files took 8.24 seconds to load)
+[bc2942a4] 	2055 examples, 0 failures, 8 pending
+```
+
+В девелопе:
+
+```bash
+Finished in 1 minute 13.56 seconds (files took 17.12 seconds to load)
+2345 examples, 2 failures, 6 pending
+```
+
+На самом деле иногда есть проблема на CI, когда параллельно запускается много билдов (у нас большая команда и мы вечно пушим :D).
+
+Но учитывая test suite, не факт, что есть quick wins, возможно, нужно мелочи оптмизировать (если задаться целью).
+
+### Memory profile
+
+```bash
+TEST_MEM_PROF='rss' TEST_MEM_PROF_COUNT=10 rspec spec
+```
+
+Решила память попрофилировать, т.к. по времени вроде всё не так плохо.
+Самый жирный кейс недавно коллега оптимизировал, остальные не так явно выделяются, записала себе examples для дальнейшего профилирования по отдельности.
+
+
+```bash
+TEST_MEM_PROF='alloc' TEST_MEM_PROF_COUNT=10 rspec spec
+```
+
+По аллокациям есть один спек, к-й 2% занимает, но это просто здоровый тест, там уже всё прописано через `let_it_be` и тд
+
+### Rspec --profile
+
+
+```bash
+rspec --profile spec
+```
+
+Самые медленные тесты и example groups выполняются за 0,2-0,5 секунды.  
+Есть одна группа, к-я выполняется 1,37с , но там в принципе много данных нужно. Я бы наоборот проверки дописала на полученные результаты.  
+Наверное, мелочи можно оптимизировать, но острой необходимости нет.
+
+### Rspec dissect
+
+```bash
+RD_PROF=1 RD_PROF_TOP=10 bundle exec rspec spec
+```
+
+```bash
+[TEST PROF INFO] RSpecDissect report
+
+Total time: 00:54.086
+
+Total `let` time: 00:14.948
+Total `before(:each)` time: 00:31.333
+```
+
+По времени немного, но есть за что зацепиться - кое-где создаётся очень много записей (например, user), кое-что можно переиспользовать, я думаю.  
+В т.ч. `let_it_be` на `let` заменить.
+
+### Factory prof
+
+```bash
+FPROF=flamegraph rspec
+```
+
+Да, есть каскады, но сейчас не разгрести так сразу )
+
+```bash
+FPROF=1 FPROF_THRESHOLD=30 be rspec
+```
+
+Очень много записей `user` и ещё кое-каких связанных, подозреваю, что для тестов на разные роли.
+Думаю, этот момент можно оптимизировать
+
+### Factory doctor
+
+```bash
+FDOC=1 be rspec spec
+```
+
+Пока немного, по времени так точно, но понятно, что через время всё равно могут быть проблемы:
+
+```bash
+Total (potentially) bad examples: 40
+Total wasted time: 00:01.016
+```
+
+### Event prof
+
+```bash
+EVENT_PROF='sql.active_record' be rspec spec
+```
+
+Запросов не маленько, но в основном просто так же "много данных нужно".
+
+### Stackprof
+
+```bash
+TEST_STACK_PROF=1 bundle exec rspec
+```
+
+```
+SAMPLE=10 TEST_STACK_PROF=1 be rspec
+```
+
+Ну тут куча внутренних вызовов и тд, наверное, нужно отдельные тесты смотреть
+
+
+### Профилирование конкретных тестов (нашей фичи)
